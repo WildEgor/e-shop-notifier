@@ -7,11 +7,15 @@
 package pkg
 
 import (
+	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/adapters/sms"
+	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/adapters/smtp"
 	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/configs"
 	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/handlers/errors"
 	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/handlers/health_check"
+	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/handlers/notify"
 	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/handlers/ready_check"
 	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/router"
+	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/services/template"
 	"github.com/google/wire"
 )
 
@@ -26,7 +30,15 @@ func NewServer() (*Server, error) {
 	readyCheckHandler := ready_check_handler.NewReadyCheckHandler()
 	publicRouter := router.NewPublicRouter(healthCheckHandler, readyCheckHandler)
 	swaggerRouter := router.NewSwaggerRouter()
-	server := NewApp(appConfig, errorsHandler, privateRouter, publicRouter, swaggerRouter)
+	smtpConfig := configs.NewSMTPConfig(configurator)
+	smtpAdapter := smtp_adapter.NewSMTPAdapter(smtpConfig)
+	smsConfig := configs.NewSMSConfig(configurator)
+	smsAdapter := sms_adapter.NewSMSAdapter(smsConfig)
+	templateService := template.NewTemplateService()
+	notifyHandler := notify_handler.NewNotifyHandler(smtpAdapter, smsAdapter, templateService)
+	amqpConfig := configs.NewAMQPConfig(configurator)
+	amqpRouter := router.NewAMQPRouter(appConfig, notifyHandler, amqpConfig)
+	server := NewApp(appConfig, errorsHandler, privateRouter, publicRouter, swaggerRouter, amqpRouter)
 	return server, nil
 }
 

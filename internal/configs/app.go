@@ -1,6 +1,7 @@
 package configs
 
 import (
+	"github.com/WildEgor/e-shop-gopack/pkg/libs/logger/models"
 	"github.com/caarlos0/env/v7"
 	"log/slog"
 )
@@ -21,7 +22,9 @@ func NewAppConfig(c *Configurator) *AppConfig {
 	cfg := AppConfig{}
 
 	if err := env.Parse(&cfg); err != nil {
-		slog.Error("app config parse error")
+		slog.Error("app config parse error", models.LogEntryAttr(&models.LogEntry{
+			Err: err,
+		}))
 	}
 
 	return &cfg

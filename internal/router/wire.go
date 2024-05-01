@@ -10,4 +10,5 @@ var RouterSet = wire.NewSet(
 	NewPublicRouter,
 	NewPrivateRouter,
 	NewSwaggerRouter,
+	NewAMQPRouter,
 )

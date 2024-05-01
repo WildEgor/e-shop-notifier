@@ -1,45 +1,70 @@
 package pkg
 
 import (
-	"context"
-	"fmt"
+	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/adapters"
 	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/configs"
 	eh "github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/handlers/errors"
 	nfm "github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/middlewares/not_found"
 	"github.com/WildEgor/e-shop-fiber-microservice-boilerplate/internal/router"
+	slogger "github.com/WildEgor/e-shop-gopack/pkg/libs/logger/handlers"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/template/html/v2"
 	"github.com/google/wire"
 	"log/slog"
-	"os"
+	"sync"
 )
 
 var AppSet = wire.NewSet(
 	NewApp,
-	configs.ConfigsSet,
 	router.RouterSet,
+	adapters.AdaptersSet,
+	configs.ConfigsSet,
 )
 
 // Server represents the main server configuration.
 type Server struct {
-	App       *fiber.App
-	AppConfig *configs.AppConfig
+	App        *fiber.App
+	AMQPRouter *router.AMQPRouter // TODO: ???
+	AppConfig  *configs.AppConfig
 }
 
-func (srv *Server) Run(ctx *context.Context) {
-	slog.Info("server is listening")
+func (srv *Server) Run() {
+	slog.Info(
+		"server is listening on PORT",
+		slog.String("port", srv.AppConfig.Port))
 
-	if err := srv.App.Listen(fmt.Sprintf(":%s", srv.AppConfig.Port)); err != nil {
-		slog.Error("unable to start server")
+	var wg sync.WaitGroup
+
+	go func() {
+		defer wg.Done()
+		srv.AMQPRouter.Consume()
+	}()
+
+	if err := srv.App.Listen(":" + srv.AppConfig.Port); err != nil {
+		slog.Error(
+			"unable to start server",
+			slog.String("error", err.Error()),
+		)
+		return
 	}
+
+	wg.Wait()
 }
 
 func (srv *Server) Shutdown() {
-	slog.Info("shutdown service")
+	slog.Info(
+		"shutdown service",
+	)
+
+	srv.AMQPRouter.Close()
+
 	if err := srv.App.Shutdown(); err != nil {
-		slog.Error("unable to shutdown server")
+		slog.Error(
+			"unable to shutdown server",
+			slog.String("error", err.Error()),
+		)
 	}
 }
 
@@ -49,14 +74,17 @@ func NewApp(
 	prr *router.PrivateRouter,
 	pbr *router.PublicRouter,
 	sr *router.SwaggerRouter,
+	ar *router.AMQPRouter,
 ) *Server {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
+	logger := slogger.NewLogger(
+		slogger.WithAppName(ac.Name),
+	)
 	if ac.IsProduction() {
-		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		}))
+		logger = slogger.NewLogger(
+			slogger.WithAppName(ac.Name),
+			slogger.WithLevel("info"),
+			slogger.WithFormat("json"),
+		)
 	}
 	slog.SetDefault(logger)
 
@@ -75,12 +103,14 @@ func NewApp(
 	prr.Setup(app)
 	pbr.Setup(app)
 	sr.Setup(app)
+	ar.Setup(app)
 
 	// 404 handler
 	app.Use(nfm.NewNotFound())
 
 	return &Server{
-		App:       app,
-		AppConfig: ac,
+		App:        app,
+		AMQPRouter: ar,
+		AppConfig:  ac,
 	}
 }
